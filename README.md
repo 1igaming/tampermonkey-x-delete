@@ -13,7 +13,7 @@ Maintained by **[1igaming](https://github.com/1igaming)** · Repository: [`tampe
 
 On `https://x.com/<username>/with_replies`, the script opens a small control panel. You enter one or more words or phrases (comma- or newline-separated). The script loads timeline history as far as the site allows, then walks the timeline and **permanently deletes** posts authored as that profile when **any** keyword matches **searchable text in the whole post card** (not only the main tweet body): reply context (“Replying to…”), quoted tweets, link/card snippets, image `alt` text, and related visible copy.
 
-An optional checkbox limits matching to posts that are clearly **replies** (social reply context present).
+An optional checkbox limits matching to **conversation replies** (detected via reply context lines, `aria-label`s, and a fallback when X links a parent status id). Standalone posts and typical repost lines are excluded; leave it off to match **all** your tweets on the timeline.
 
 ---
 

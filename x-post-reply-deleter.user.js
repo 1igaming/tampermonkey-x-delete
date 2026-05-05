@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         X Post & Reply Deleter
 // @namespace    https://github.com/1igaming/tampermonkey-x-delete
-// @version      1.2.2
+// @version      1.2.3
 // @description  Tampermonkey: on x.com/USER/with_replies, load the timeline and bulk-delete your posts matching keyword filters (body, reply context, quotes, cards, alts).
 // @author       1igaming
 // @homepageURL  https://github.com/1igaming/tampermonkey-x-delete
@@ -210,11 +210,67 @@
     return full.slice(0, 120).replace(/\s+/g, ' ');
   }
 
+  /** All visible / announced copy under socialContext (X splits text across nodes). */
+  function socialContextFullText(ctx) {
+    if (!ctx) return '';
+    const parts = [];
+    try {
+      parts.push(ctx.innerText || '');
+      parts.push(ctx.getAttribute('aria-label') || '');
+      for (const el of ctx.querySelectorAll('[aria-label]')) {
+        parts.push(el.getAttribute('aria-label') || '');
+      }
+    } catch (_) {}
+    return parts.join(' ').replace(/\s+/g, ' ').trim();
+  }
+
+  function hasQuotedTweetEmbed(article) {
+    return !!article.querySelector('[data-testid="quoteTweet"]');
+  }
+
+  /**
+   * True if this card is a reply (conversation reply), not a standalone post.
+   * X changes copy and DOM often; we use socialContext text + aria + a small URL heuristic.
+   */
   function isReplyTweet(article) {
     const ctx = article.querySelector('[data-testid="socialContext"]');
-    if (!ctx) return false;
-    const t = (ctx.innerText || '').toLowerCase();
-    return t.includes('replying to');
+    const raw = socialContextFullText(ctx);
+    const t = raw.toLowerCase();
+
+    // Not a reply: repost / follow / topic / ads-style context (unless it also says reply)
+    if (t) {
+      const looksRepost = /\breposted\b|\byou reposted\b|\brepost\b/i.test(raw);
+      const looksReplyLine =
+        /\b(replying to|in reply to|in response to|reply to|replying)\b/i.test(raw) ||
+        /\b(en réponse à|réponse à|respondiendo a|respondiendo|contestando a|antwort an|答覆|返信|답글)\b/i.test(
+          raw
+        );
+      if (looksRepost && !looksReplyLine) return false;
+      if (
+        /\b(following|subscribed|subscriber|community|pinned|promoted|ad\b|topic ·|live on)/i.test(t) &&
+        !looksReplyLine
+      )
+        return false;
+      if (looksReplyLine) return true;
+    }
+
+    // Fallback: reply cards often reference another status id (parent) while quote cards
+    // use [data-testid="quoteTweet"] (exclude those).
+    if (hasQuotedTweetEmbed(article)) return false;
+
+    const myId = statusIdFromArticle(article);
+    if (!myId) return false;
+    const idSet = new Set();
+    for (const a of article.querySelectorAll('a[href*="/status/"]')) {
+      const m = /\/status\/(\d+)/.exec(a.getAttribute('href') || '');
+      if (m) idSet.add(m[1]);
+    }
+    if (idSet.size >= 2 && [...idSet].some((id) => id !== myId)) {
+      if (ctx && /\bquote\b/i.test(raw)) return false;
+      return true;
+    }
+
+    return false;
   }
 
   function parseKeywords(raw) {
@@ -459,7 +515,7 @@
         descriptions, etc. (comma or newline separated). Only <strong id="x-rfd-who"></strong> is targeted.
       </p>
       <textarea id="x-rfd-filter" placeholder="e.g. spam, giveaway, check my bio"></textarea>
-      <label><input type="checkbox" id="x-rfd-replies-only" checked /> Only tweets that are replies (“Replying to …”)</label>
+      <label><input type="checkbox" id="x-rfd-replies-only" /> Only replies (conversation replies, not standalone posts)</label>
       <div class="x-rfd-row">
         <button type="button" class="x-rfd-ghost" id="x-rfd-load">Load full timeline</button>
         <button type="button" class="x-rfd-primary" id="x-rfd-run">Delete matching (full profile)</button>
